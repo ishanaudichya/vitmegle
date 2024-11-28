@@ -16,6 +16,7 @@ export default function VideoChat() {
   const peerConnectionRef = useRef<RTCPeerConnection>()
   const roomRef = useRef<string>('')
   const [hasStartedVideo, setHasStartedVideo] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const initializePeerConnection = () => {
     const configuration = { 
@@ -116,27 +117,71 @@ export default function VideoChat() {
     };
   }, []);
 
+  const getMediaStream = async () => {
+    try {
+      // First try to get permissions
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true
+      });
+
+      return stream;
+    } catch (err) {
+      console.warn('Failed to get audio+video, trying video only:', err);
+      try {
+        // If audio fails, try video only
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false
+        });
+        return stream;
+      } catch (err2) {
+        console.error('Failed to get video:', err2);
+        throw new Error('Please allow camera and microphone access');
+      }
+    }
+  };
+
+  const checkBrowserSupport = () => {
+    // Only check for basic requirements
+    if (typeof window === 'undefined') {
+      return false;
+    }
+
+    return 'mediaDevices' in navigator;
+  };
+
+  useEffect(() => {
+    const isSupported = checkBrowserSupport();
+    if (!isSupported) {
+      setError('Your browser does not support video chat');
+    }
+  }, []);
+
   const startVideo = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: true, 
-        audio: true 
-      })
+      setError(null); // Clear any previous errors
+      const stream = await getMediaStream();
       
       if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream
+        localVideoRef.current.srcObject = stream;
       }
 
       // Add tracks to peer connection
       stream.getTracks().forEach(track => {
-        peerConnectionRef.current?.addTrack(track, stream)
-      })
+        peerConnectionRef.current?.addTrack(track, stream);
+      });
 
-      setHasStartedVideo(true)
+      setHasStartedVideo(true);
     } catch (error) {
-      console.error('Error accessing media devices:', error)
+      console.error('Error accessing media devices:', error);
+      if (error instanceof Error) {
+        setError(error.message);
+      } else {
+        setError('Could not access camera or microphone');
+      }
     }
-  }
+  };
 
   const connectToUser = () => {
     if (!socketRef.current || !hasStartedVideo) return;
@@ -274,6 +319,12 @@ export default function VideoChat() {
          isConnecting ? 'Connecting...' : 
          'Not Connected'}
       </div>
+
+      {error && (
+        <div className="mt-4 p-4 bg-red-500 text-white rounded-lg">
+          {error}
+        </div>
+      )}
     </div>
   )
 } 
